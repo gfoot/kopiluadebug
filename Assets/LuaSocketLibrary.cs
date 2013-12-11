@@ -1,29 +1,25 @@
-using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Net.Sockets;
 using System.Text;
-using System.Threading;
-
 using KopiLua;
 using UnityEngine;
 
 public class LuaSocketLibrary : KopiLua.Lua
 {
-	static luaL_Reg[] funcs =
+	static readonly luaL_Reg[] Funcs =
 	{
 		new luaL_Reg("connect", Connect),
 		new luaL_Reg(null, null)
 	};
 
-	static luaL_Reg[] SocketFuncs =
+	static readonly luaL_Reg[] SocketFuncs =
 	{
 		new luaL_Reg("receive", SocketReceive),
 		new luaL_Reg("send", SocketSend),
-		new luaL_Reg("settimeout", SocketSetTimeout),
+		new luaL_Reg("settimeout", SocketSetTimeout)
 	};
 
-	private static void NewClass(lua_State L, string classname, luaL_Reg[] methods)
+	private static void NewClass(lua_State L, string classname, IEnumerable<luaL_Reg> methods)
 	{
 		luaL_newmetatable(L, classname); /* mt */
 		/* create __index table to place methods */
@@ -48,7 +44,7 @@ public class LuaSocketLibrary : KopiLua.Lua
 
 	public static void Init(lua_State L)
 	{
-		luaI_openlib(L, "socket", funcs, 0);
+		luaI_openlib(L, "socket", Funcs, 0);
 	
 		NewClass(L, "Socket", SocketFuncs);
 
@@ -71,7 +67,7 @@ public class LuaSocketLibrary : KopiLua.Lua
 
 		Debug.Log(string.Format("Connect(\"{0}\", {1})", host, port));
 
-		Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+		var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 		socket.Connect(host, port);
 		var id = _nextId++;
 		_sockets[id] = new Connection { Socket = socket, Timeout = -1 };
@@ -87,9 +83,9 @@ public class LuaSocketLibrary : KopiLua.Lua
 		return 1;
 	}
 
-	private static Encoding TextEncoding = Encoding.GetEncoding(28591);
+	private static readonly Encoding TextEncoding = Encoding.GetEncoding(28591);
 
-	private static int SocketSend(Lua.lua_State L)
+	private static int SocketSend(lua_State L)
 	{
 		var message = luaL_checkstring(L, 2).ToString();
 
@@ -109,9 +105,9 @@ public class LuaSocketLibrary : KopiLua.Lua
 		return 0;
 	}
 
-	static byte[] buffer = new byte[1024];
+	static readonly byte[] Buffer = new byte[1024];
 
-	private static int SocketReceive(Lua.lua_State L)
+	private static int SocketReceive(lua_State L)
 	{
 		lua_settop(L, 3);
 
@@ -133,26 +129,26 @@ public class LuaSocketLibrary : KopiLua.Lua
 		{
 			return SocketReceiveBytes(L, socket, luaL_checkinteger(L, 2));
 		}
-		else if (lua_isnil(L, 2))
-		{
-			return SocketReceiveLine(L, socket);
-		}
-		else if (lua_isstring(L, 2) != 0)
-		{
-			if (lua_tostring(L, 2).ToString() == "*1")
-				return SocketReceiveLine(L, socket);
-			if (lua_tostring(L, 2).ToString() == "*a")
-				return SocketReceiveBytes(L, socket, -1);
-		}
+	    if (lua_isnil(L, 2))
+	    {
+	        return SocketReceiveLine(L, socket);
+	    }
+	    if (lua_isstring(L, 2) != 0)
+	    {
+	        if (lua_tostring(L, 2).ToString() == "*1")
+	            return SocketReceiveLine(L, socket);
+	        if (lua_tostring(L, 2).ToString() == "*a")
+	            return SocketReceiveBytes(L, socket, -1);
+	    }
 
-		lua_pushnil(L);
+	    lua_pushnil(L);
 		lua_pushstring(L, "Bad parameter to socket:receive");
 		return 2;
 	}
 	
 	private static int SocketReceiveLine(lua_State L, Connection socket)
 	{
-		string s = "";
+		var s = "";
 
 		while (true)
 		{
@@ -160,7 +156,7 @@ public class LuaSocketLibrary : KopiLua.Lua
 
 			try
 			{
-				bytesRead = socket.Socket.Receive(buffer, 0, 1, SocketFlags.None);
+				bytesRead = socket.Socket.Receive(Buffer, 0, 1, SocketFlags.None);
 			}
 			catch (SocketException e)
 			{
@@ -173,11 +169,11 @@ public class LuaSocketLibrary : KopiLua.Lua
 			if (bytesRead == 0)
 				break;
 
-			if (bytesRead == 1 && buffer[0] == 0xa)
+			if (bytesRead == 1 && Buffer[0] == 0xa)
 				break;
 
 			if (bytesRead == 1)
-				s += TextEncoding.GetString(buffer, 0, 1);
+				s += TextEncoding.GetString(Buffer, 0, 1);
 		}
 		
 		lua_pushstring(L, s);
@@ -188,7 +184,7 @@ public class LuaSocketLibrary : KopiLua.Lua
 	{
 		int byteCount;
 
-		string s = "";
+		var s = "";
 
 		if (socket.Timeout == 0)
 		{
@@ -200,9 +196,9 @@ public class LuaSocketLibrary : KopiLua.Lua
 			try
 			{
 				int max = bytesToReceive;
-				if (max < 0 || max > buffer.Length)
-					max = buffer.Length;
-				byteCount = socket.Socket.Receive(buffer, 0, max, SocketFlags.None);
+				if (max < 0 || max > Buffer.Length)
+					max = Buffer.Length;
+				byteCount = socket.Socket.Receive(Buffer, 0, max, SocketFlags.None);
 			}
 			catch (SocketException e)
 			{
@@ -227,7 +223,7 @@ public class LuaSocketLibrary : KopiLua.Lua
 			if (bytesToReceive >= 0)
 				bytesToReceive -= byteCount;
 
-		 	s += TextEncoding.GetString(buffer, 0, byteCount);
+		 	s += TextEncoding.GetString(Buffer, 0, byteCount);
 		}
 		while (socket.Socket.Available > 0 && bytesToReceive != 0);
 
@@ -237,8 +233,10 @@ public class LuaSocketLibrary : KopiLua.Lua
 		return 1;
 	}
 
-	private static int SocketSetTimeout(Lua.lua_State L)
+	private static int SocketSetTimeout(lua_State L)
 	{
+	    lua_settop(L, 2);
+
 		lua_pushstring(L, "clientId");
 		lua_gettable(L, 1);
 		var id = luaL_checkinteger(L, -1);
