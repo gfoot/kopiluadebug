@@ -107,7 +107,7 @@ conditional of some sort, so it's only enabled if you tick a box in the Inspecto
 Save and run
 ------------
 
-Now when you run your game it should pause (and hang the entire Unity UI) as soon as it hits the mobdebug initialization line.  
+Now when you run your game it should pause (and hang the entire Unity UI) as soon as it hits the mobdebug initialization line. 
 ZeroBrane should pop up and show your Lua code, with the instruction pointer just after the mobdebug line.  At this point you can use 
 the debugger as normal - you can set breakpoints and run until they get hit, or single-step, inspect variables, and so on.
 
@@ -123,6 +123,6 @@ mobdebug not handling unexpected conditions well, but it could also be due to bu
 handling of timeouts.  For now you just need to be careful, and make sure you save your scene (if it contains significant changes) 
 before running.
 
-There are also problems if ZeroBrane gets upset e.g. about not being able to find the lua file that the interpreter is running.  
+There are also problems if ZeroBrane gets upset e.g. about not being able to find the lua file that the interpreter is running. 
 Again it seems to lead to Unity being hung forever.  Try to avoid that.
 
