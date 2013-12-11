@@ -1,0 +1,11 @@
+*.dll
+*.dll.meta
+*.pdb
+*.pdb.meta
+*.dll.mdb
+*.dll.mdb.meta
+*.ver
+*.ver.meta
+COPYRIGHT-*
+README
+README.meta

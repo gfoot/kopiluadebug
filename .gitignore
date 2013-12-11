@@ -1,0 +1,11 @@
+*.sln
+*.userprefs
+.DS_Store
+Assembly-*
+Library
+Temp
+Build/WebPlayer/WebPlayer.html
+Build/WebPlayer/WebPlayer.unity3d
+_ReSharper*
+*.suo
+obj
