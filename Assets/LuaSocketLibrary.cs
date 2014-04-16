@@ -14,6 +14,7 @@ public class LuaSocketLibrary : KopiLua.Lua
 
 	static readonly luaL_Reg[] SocketFuncs =
 	{
+		new luaL_Reg("close", SocketClose),
 		new luaL_Reg("receive", SocketReceive),
 		new luaL_Reg("send", SocketSend),
 		new luaL_Reg("settimeout", SocketSetTimeout)
@@ -81,6 +82,17 @@ public class LuaSocketLibrary : KopiLua.Lua
 		lua_rawset(L, -3);
 
 		return 1;
+	}
+
+	private static int SocketClose(lua_State L)
+	{
+		lua_pushstring(L, "clientId");
+		lua_gettable(L, 1);
+		var id = luaL_checkinteger(L, -1);
+
+		_sockets[id].Socket.Disconnect(false);
+		_sockets.Remove(id);
+		return 0;
 	}
 
 	private static readonly Encoding TextEncoding = Encoding.GetEncoding(28591);
@@ -200,13 +212,12 @@ public class LuaSocketLibrary : KopiLua.Lua
 					max = Buffer.Length;
 				byteCount = socket.Socket.Receive(Buffer, 0, max, SocketFlags.None);
 			}
-			catch (SocketException e)
+			catch (SocketException)
 			{
-				Debug.Log(string.Format("timeout ({0})", e.SocketErrorCode));
-
 				socket.Socket.Blocking = true;
+
 				lua_pushnil(L);
-				lua_pushstring(L, "timeout");
+				lua_pushstring(L, socket.Socket.Connected ? "timeout" : "closed");
 				return 2;
 			}
 	
