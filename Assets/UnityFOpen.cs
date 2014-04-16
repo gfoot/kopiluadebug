@@ -49,7 +49,7 @@ public static class UnityFOpen
 		filename = filename.Replace("\\", "/").Replace("/./", "/");
 		filename = filename.Substring(1); // remove the leading slash again
 
-		bool read = true;
+		//bool read = true;
 		bool write = false;
 		bool truncate = false;
 		bool startAtEnd = false;
@@ -62,12 +62,12 @@ public static class UnityFOpen
 			case 'r':
 				break;
 			case 'w':
-				read = false;
+				//read = false;
 				write = true;
 				truncate = true;
 				break;
 			case 'a':
-				read = false;
+				//read = false;
 				write = true;
 				startAtEnd = true;
 				break;
@@ -78,7 +78,7 @@ public static class UnityFOpen
 			
 			if (cMode.chars[pos] == '+')
 			{
-				read = true;
+				//read = true;
 				write = true;
 				++pos;
 			}
