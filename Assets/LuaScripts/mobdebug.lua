@@ -1,39 +1,46 @@
 --
--- MobDebug 0.542
--- Copyright 2011-13 Paul Kulchenko
+-- MobDebug 0.5511
+-- Copyright 2011-14 Paul Kulchenko
 -- Based on RemDebug 1.0 Copyright Kepler Project 2005
 --
 
+-- use loaded modules or load explicitly on those systems that require that
+local require = require
+local io = io or require "io"
+local table = table or require "table"
+local string = string or require "string"
+local coroutine = coroutine or require "coroutine"
+-- protect require "os" as it may fail on embedded systems without os module
+local os = os or (function(module)
+  local ok, res = pcall(require, module)
+  return ok and res or nil
+end)("os")
+
 local mobdebug = {
   _NAME = "mobdebug",
-  _VERSION = 0.542,
+  _VERSION = 0.5511,
   _COPYRIGHT = "Paul Kulchenko",
   _DESCRIPTION = "Mobile Remote Debugger for the Lua programming language",
-  port = os and os.getenv and os.getenv("MOBDEBUG_PORT") or 8172,
+  port = os and os.getenv and tonumber(os.getenv("MOBDEBUG_PORT")) or 8172,
   checkcount = 200,
   yieldtimeout = 0.02,
 }
 
-local coroutine = coroutine
 local error = error
 local getfenv = getfenv
 local setfenv = setfenv
 local loadstring = loadstring or load -- "load" replaced "loadstring" in Lua 5.2
-local io = io
-local os = os
 local pairs = pairs
-local require = require
 local setmetatable = setmetatable
-local string = string
 local tonumber = tonumber
 local unpack = table.unpack or unpack
 local rawget = rawget
 
 -- if strict.lua is used, then need to avoid referencing some global
 -- variables, as they can be undefined;
--- use rawget to to avoid complaints from strict.lua at run-time.
+-- use rawget to avoid complaints from strict.lua at run-time.
 -- it's safe to do the initialization here as all these variables
--- should get defined values (of any) before the debugging starts.
+-- should get defined values (if any) before the debugging starts.
 -- there is also global 'wx' variable, which is checked as part of
 -- the debug loop as 'wx' can be loaded at any time during debugging.
 local genv = _G or _ENV
@@ -61,11 +68,12 @@ end
 -- check for OS and convert file names to lower case on windows
 -- (its file system is case insensitive, but case preserving), as setting a
 -- breakpoint on x:\Foo.lua will not work if the file was loaded as X:\foo.lua.
--- OSX and Windows behave the same way (case insensitive, but case preserving)
-local iscasepreserving = os and os.getenv and (os.getenv('WINDIR')
-  or (os.getenv('OS') or ''):match('[Ww]indows')
-  or os.getenv('DYLD_LIBRARY_PATH'))
-  or not io.open("/proc")
+-- OSX and Windows behave the same way (case insensitive, but case preserving).
+-- OSX can be configured to be case-sensitive, so check for that. This doesn't
+-- handle the case of different partitions having different case-sensitivity.
+local win = os and os.getenv and (os.getenv('WINDIR') or (os.getenv('OS') or ''):match('[Ww]indows')) and true or false
+local mac = not win and (os and os.getenv and os.getenv('DYLD_LIBRARY_PATH') or not io.open("/proc")) and true or false
+local iscasepreserving = win or (mac and io.open('/library') ~= nil)
 
 -- turn jit off based on Mike Pall's comment in this discussion:
 -- http://www.freelists.org/post/luajit/Debug-hooks-and-JIT,2
@@ -97,7 +105,7 @@ local outputs = {}
 local iobase = {print = print}
 local basedir = ""
 local deferror = "execution aborted at default debugee"
-local debugee = function () 
+local debugee = function ()
   local a = 1
   for _ = 1, 10 do a = a + 1 end
   error(deferror)
@@ -105,7 +113,7 @@ end
 local function q(s) return s:gsub('([%(%)%.%%%+%-%*%?%[%^%$%]])','%%%1') end
 
 local serpent = (function() ---- include Serpent module for serialization
-local n, v = "serpent", 0.25 -- (C) 2012-13 Paul Kulchenko; MIT License
+local n, v = "serpent", 0.272 -- (C) 2012-13 Paul Kulchenko; MIT License
 local c, d = "Paul Kulchenko", "Lua serializer and pretty printer"
 local snum = {[tostring(1/0)]='1/0 --[[math.huge]]',[tostring(-1/0)]='-1/0 --[[-math.huge]]',[tostring(0/0)]='0/0'}
 local badtype = {thread = true, userdata = true, cdata = true}
@@ -115,7 +123,7 @@ for _,k in ipairs({'and', 'break', 'do', 'else', 'elseif', 'end', 'false',
   'return', 'then', 'true', 'until', 'while'}) do keyword[k] = true end
 for k,v in pairs(G) do globals[v] = k end -- build func to name mapping
 for _,g in ipairs({'coroutine', 'debug', 'io', 'math', 'string', 'table', 'os'}) do
-  for k,v in pairs(G[g]) do globals[v] = g..'.'..k end end
+  for k,v in pairs(G[g] or {}) do globals[v] = g..'.'..k end end
 
 local function s(t, opts)
   local name, indent, fatal, maxnum = opts.name, opts.indent, opts.fatal, opts.maxnum
@@ -137,13 +145,13 @@ local function s(t, opts)
     local plain = type(n) == "string" and n:match("^[%l%u_][%w_]*$") and not keyword[n]
     local safe = plain and n or '['..safestr(n)..']'
     return (path or '')..(plain and path and '.' or '')..safe, safe end
-  local alphanumsort = type(opts.sortkeys) == 'function' and opts.sortkeys or function(k, o, n)  -- k=keys, o=originaltable, n=padding
+  local alphanumsort = type(opts.sortkeys) == 'function' and opts.sortkeys or function(k, o, n) -- k=keys, o=originaltable, n=padding
     local maxn, to = tonumber(n) or 12, {number = 'a', string = 'b'}
     local function padnum(d) return ("%0"..maxn.."d"):format(d) end
     table.sort(k, function(a,b)
-      -- sort numeric keys first: k[key] is non-nil for numeric keys
-      return (k[a] and 0 or to[type(a)] or 'z')..(tostring(a):gsub("%d+",padnum))
-           < (k[b] and 0 or to[type(b)] or 'z')..(tostring(b):gsub("%d+",padnum)) end) end
+      -- sort numeric keys first: k[key] is not nil for numerical keys
+      return (k[a] ~= nil and 0 or to[type(a)] or 'z')..(tostring(a):gsub("%d+",padnum))
+           < (k[b] ~= nil and 0 or to[type(b)] or 'z')..(tostring(b):gsub("%d+",padnum)) end) end
   local function val2str(t, name, indent, insref, path, plainindex, level)
     local ttype, level, mt = type(t), (level or 0), getmetatable(t)
     local spath, sname = safename(path, name)
@@ -199,7 +207,7 @@ local function s(t, opts)
       seen[t] = insref or spath
       local ok, res = pcall(string.dump, t)
       local func = ok and ((opts.nocode and "function() --[[..skipped..]] end" or
-        "loadstring("..safestr(res)..",'@serialized')")..comment(t, level))
+        "((loadstring or load)("..safestr(res)..",'@serialized'))")..comment(t, level))
       return tag..(func or globerr(t, level))
     else return tag..safestr(t) end -- handle all other types
   end
@@ -210,12 +218,33 @@ local function s(t, opts)
   return not name and body..warn or "do local "..body..sepr..tail.."return "..name..sepr.."end"
 end
 
+local function deserialize(data, opts)
+  local f, res = (loadstring or load)('return '..data)
+  if not f then f, res = (loadstring or load)(data) end
+  if not f then return f, res end
+  if opts and opts.safe == false then return pcall(f) end
+
+  local count, thread = 0, coroutine.running()
+  local h, m, c = debug.gethook(thread)
+  debug.sethook(function (e, l) count = count + 1
+    if count >= 3 then error("cannot call functions") end
+  end, "c")
+  local res = {pcall(f)}
+  count = 0 -- set again, otherwise it's tripped on the next sethook
+  debug.sethook(thread, h, m, c)
+  return (table.unpack or unpack)(res)
+end
+
 local function merge(a, b) if b then for k,v in pairs(b) do a[k] = v end end; return a; end
 return { _NAME = n, _COPYRIGHT = c, _DESCRIPTION = d, _VERSION = v, serialize = s,
+  load = deserialize,
   dump = function(a, opts) return s(a, merge({name = '_', compact = true, sparse = true}, opts)) end,
   line = function(a, opts) return s(a, merge({sortkeys = true, comment = true}, opts)) end,
   block = function(a, opts) return s(a, merge({indent = '  ', sortkeys = true, comment = true}, opts)) end }
 end)() ---- end of Serpent module
+
+mobdebug.line = serpent.line
+mobdebug.dump = serpent.dump
 
 local function removebasedir(path, basedir)
   if iscasepreserving then
@@ -487,7 +516,7 @@ local function debug_hook(event, line)
         -- this is either a file name coming from loadstring("chunk", "file"),
         -- or the actual source code that needs to be serialized (as it may
         -- include newlines); assume it's a file name if it's all on one line.
-        file = file:find("[\r\n]") and serpent.line(file) or file
+        file = file:find("[\r\n]") and mobdebug.line(file) or file
       end
 
       -- set to true if we got here; this only needs to be done once per
@@ -513,7 +542,9 @@ local function debug_hook(event, line)
     -- no watch that was fired. If there was a watch, handle its result.
     local getin = (status == nil) and
       (step_into
-      or (step_over and stack_level <= step_level)
+      -- when coroutine.running() return `nil` (main thread in Lua 5.1),
+      -- step_over will equal 'main', so need to check for that explicitly.
+      or (step_over and step_over == (coroutine.running() or 'main') and stack_level <= step_level)
       or has_breakpoint(file, line)
       or is_pending(server))
 
@@ -538,7 +569,7 @@ local function debug_hook(event, line)
     -- need to recheck once more as resume after 'stack' command may
     -- return something else (for example, 'exit'), which needs to be handled
     if status and res and res ~= 'stack' then
-      if abort == nil and res == "exit" then os.exit(1); return end
+      if abort == nil and res == "exit" then os.exit(1, true); return end
       abort = res
       -- only abort if safe; if not, there is another (earlier) check inside
       -- debug_hook, which will abort execution at the first safe opportunity
@@ -548,6 +579,9 @@ local function debug_hook(event, line)
     end
 
     if vars then restore_vars(vars) end
+
+    -- last command requested Step Over/Out; store the current thread
+    if step_over == true then step_over = coroutine.running() or 'main' end
   end
 end
 
@@ -556,13 +590,13 @@ local function stringify_results(status, ...)
 
   local t = {...}
   for i,v in pairs(t) do -- stringify each of the returned values
-    local ok, res = pcall(serpent.line, v, {nocode = true, comment = 1})
+    local ok, res = pcall(mobdebug.line, v, {nocode = true, comment = 1})
     t[i] = ok and res or ("%q"):format(res):gsub("\010","n"):gsub("\026","\\026")
   end
   -- stringify table with all returned values
   -- this is done to allow each returned value to be used (serialized or not)
   -- intependently and to preserve "original" comments
-  return pcall(serpent.dump, t, {sparse = false})
+  return pcall(mobdebug.dump, t, {sparse = false})
 end
 
 local function debugger_loop(sev, svars, sfile, sline)
@@ -629,7 +663,7 @@ local function debugger_loop(sev, svars, sfile, sline)
       end
     elseif command == "EXEC" then
       local _, _, chunk = string.find(line, "^[A-Z]+%s+(.+)$")
-      if chunk then 
+      if chunk then
         local func, res = loadstring(chunk)
         local status
         if func then
@@ -687,13 +721,13 @@ local function debugger_loop(sev, svars, sfile, sline)
       end
     elseif command == "SETW" then
       local _, _, exp = string.find(line, "^[A-Z]+%s+(.+)%s*$")
-      if exp then 
+      if exp then
         local func, res = loadstring("return(" .. exp .. ")")
         if func then
           watchescnt = watchescnt + 1
           local newidx = #watches + 1
           watches[newidx] = func
-          server:send("200 OK " .. newidx .. "\n") 
+          server:send("200 OK " .. newidx .. "\n")
         else
           server:send("401 Error in Expression " .. #res .. "\n")
           server:send(res)
@@ -745,8 +779,8 @@ local function debugger_loop(sev, svars, sfile, sline)
     elseif command == "OVER" or command == "OUT" then
       server:send("200 OK\n")
       step_over = true
-      
-      -- OVER and OUT are very similar except for 
+
+      -- OVER and OUT are very similar except for
       -- the stack level value at which to stop
       if command == "OUT" then step_level = stack_level - 1
       else step_level = stack_level end
@@ -788,7 +822,7 @@ local function debugger_loop(sev, svars, sfile, sline)
         server:send("401 Error in Execution " .. #vars .. "\n")
         server:send(vars)
       else
-        local ok, res = pcall(serpent.dump, vars, {nocode = true, sparse = false})
+        local ok, res = pcall(mobdebug.dump, vars, {nocode = true, sparse = false})
         if ok then
           server:send("200 OK " .. res .. "\n")
         else
@@ -800,19 +834,22 @@ local function debugger_loop(sev, svars, sfile, sline)
       local _, _, stream, mode = string.find(line, "^[A-Z]+%s+(%w+)%s+([dcr])%s*$")
       if stream and mode and stream == "stdout" then
         -- assign "print" in the global environment
-        genv.print = mode == 'd' and iobase.print or coroutine.wrap(function(...)
+        local default = mode == 'd'
+        genv.print = default and iobase.print or coroutine.wrap(function()
           -- wrapping into coroutine.wrap protects this function from
-          -- being stepped through in the debugger
-          local tbl = {...}
+          -- being stepped through in the debugger.
+          -- don't use vararg (...) as it adds a reference for its values,
+          -- which may affect how they are garbage collected
           while true do
+            local tbl = {coroutine.yield()}
             if mode == 'c' then iobase.print(unpack(tbl)) end
             for n = 1, #tbl do
-              tbl[n] = select(2, pcall(serpent.line, tbl[n], {nocode = true, comment = false})) end
+              tbl[n] = select(2, pcall(mobdebug.line, tbl[n], {nocode = true, comment = false})) end
             local file = table.concat(tbl, "\t").."\n"
             server:send("204 Output " .. stream .. " " .. #file .. "\n" .. file)
-            tbl = {coroutine.yield()}
           end
         end)
+        if not default then genv.print() end -- "fake" print to start printing loop
         server:send("200 OK\n")
       else
         server:send("400 Bad Request\n")
@@ -1008,7 +1045,7 @@ local function off()
   end
 end
 
--- Handles server debugging commands 
+-- Handles server debugging commands
 local function handle(params, client, options)
   local _, _, command = string.find(params, "^([a-z]+)")
   local file, line, watch_idx
@@ -1021,7 +1058,7 @@ local function handle(params, client, options)
       local breakpoint = client:receive()
       if not breakpoint then
         print("Program finished")
-        os.exit()
+        os.exit(0, true)
         return -- use return here for those cases where os.exit() is not wanted
       end
       local _, _, status = string.find(breakpoint, "^(%d+)")
@@ -1051,12 +1088,12 @@ local function handle(params, client, options)
         if size then
           local msg = client:receive(tonumber(size))
           print("Error in remote application: " .. msg)
-          os.exit(1)
+          os.exit(1, true)
           return nil, nil, msg -- use return here for those cases where os.exit() is not wanted
         end
       else
         print("Unknown error")
-        os.exit(1)
+        os.exit(1, true)
         -- use return here for those cases where os.exit() is not wanted
         return nil, nil, "Debugger error: unexpected response '" .. breakpoint .. "'"
       end
@@ -1109,7 +1146,7 @@ local function handle(params, client, options)
         file = removebasedir(file, basedir)
       end
       client:send("DELB " .. file .. " " .. line .. "\n")
-      if client:receive() == "200 OK" then 
+      if client:receive() == "200 OK" then
         remove_breakpoint(file, line)
       else
         print("Error: breakpoint not removed")
@@ -1132,7 +1169,7 @@ local function handle(params, client, options)
     local _, _, index = string.find(params, "^[a-z]+%s+(%d+)%s*$")
     if index then
       client:send("DELW " .. index .. "\n")
-      if client:receive() == "200 OK" then 
+      if client:receive() == "200 OK" then
         watches[index] = nil
       else
         print("Error: watch expression not removed")
@@ -1143,17 +1180,17 @@ local function handle(params, client, options)
   elseif command == "delallw" then
     for index, exp in pairs(watches) do
       client:send("DELW " .. index .. "\n")
-      if client:receive() == "200 OK" then 
+      if client:receive() == "200 OK" then
         watches[index] = nil
       else
         print("Error: watch expression at index " .. index .. " [" .. exp .. "] not removed")
       end
-    end    
-  elseif command == "eval" or command == "exec" 
+    end
+  elseif command == "eval" or command == "exec"
       or command == "load" or command == "loadstring"
       or command == "reload" then
     local _, _, exp = string.find(params, "^[a-z]+%s+(.+)$")
-    if exp or (command == "reload") then 
+    if exp or (command == "reload") then
       if command == "eval" or command == "exec" then
         exp = (exp:gsub("%-%-%[(=*)%[.-%]%1%]", "") -- remove comments
                   :gsub("%-%-.-\n", " ") -- remove line comments
@@ -1175,9 +1212,10 @@ local function handle(params, client, options)
           -- if file is not open and winapi is there, try with a short path;
           -- this may be needed for unicode paths on windows
           winapi.set_encoding(winapi.CP_UTF8)
-          file = io.open(winapi.short_path(exp), "r")
+          local shortp = winapi.short_path(exp)
+          file = shortp and io.open(shortp, "r")
         end
-        if not file then error("Cannot open file " .. exp) end
+        if not file then return nil, nil, "Cannot open file " .. exp end
         -- read the file and remove the shebang line as it causes a compilation error
         local lines = file:read("*all"):gsub("^#!.-\n", "\n")
         file:close()
@@ -1252,7 +1290,7 @@ local function handle(params, client, options)
   elseif command == "listw" then
     for i, v in pairs(watches) do
       print("Watch exp. " .. i .. ": " .. v)
-    end    
+    end
   elseif command == "suspend" then
     client:send("SUSPEND\n")
   elseif command == "stack" then
@@ -1271,7 +1309,7 @@ local function handle(params, client, options)
         return nil, nil, stack
       end
       for _,frame in ipairs(stack) do
-        print(serpent.line(frame[1], {comment = false}))
+        print(mobdebug.line(frame[1], {comment = false}))
       end
       return stack
     elseif status == "401" then
@@ -1443,6 +1481,8 @@ local function done()
 end
 
 -- make public functions available
+mobdebug.setbreakpoint = set_breakpoint
+mobdebug.removebreakpoint = remove_breakpoint
 mobdebug.listen = listen
 mobdebug.loop = loop
 mobdebug.scratchpad = scratchpad
@@ -1454,8 +1494,6 @@ mobdebug.off = off
 mobdebug.moai = moai
 mobdebug.coro = coro
 mobdebug.done = done
-mobdebug.line = serpent.line
-mobdebug.dump = serpent.dump
 mobdebug.yield = nil -- callback
 
 -- this is needed to make "require 'modebug'" to work when mobdebug
