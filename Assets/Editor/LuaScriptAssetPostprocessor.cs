@@ -48,6 +48,7 @@ public class LuaScriptAssetPostprocessor : AssetPostprocessor
 		if (newPath == null)
 			return;
 
+		AssetDatabase.DeleteAsset(newPath);
 		AssetDatabase.CopyAsset(path, newPath);
 		AssetDatabase.ImportAsset(newPath);
 	}
