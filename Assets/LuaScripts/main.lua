@@ -1,3 +1,6 @@
+a = 1
+b = 2
+
 function log(...)
 	local s = select(1, ...)
 	for n = 2,select('#', ...) do
@@ -24,10 +27,8 @@ end
 --	end
 --end
 
-log("start debugger")
-require("mobdebug").start()
-
 log("initializing")
+os.exit(1, true)
 
 function test(a)
   log(a)
@@ -42,3 +43,7 @@ end
 log("running")
 
 test(7)
+
+function do_lua_stuff()
+  test(10)
+end

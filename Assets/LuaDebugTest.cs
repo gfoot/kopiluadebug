@@ -17,8 +17,42 @@ public class LuaDebugTest : MonoBehaviour
 	    Lua.luaL_openlibs(_lua);
 		LuaSocketLibrary.Init(_lua);
 
+		Lua.lua_pushcfunction(_lua, Trace);
+		Lua.lua_setglobal(_lua, "TRACE");
+
+		// KopiLua doesn't implement os.exit properly - it seems to just hang - so override it with something that doesn't.
+		Check(Lua.luaL_loadstring(_lua, "os.exit = function() end"));
+		Check(Lua.lua_pcall(_lua, 0, 0, 0));
+
+		// Activate mobdebug - causes the debugger to pause on the next statement
+		Check(Lua.luaL_loadstring(_lua, "require('mobdebug').start()"));
+		Check(Lua.lua_pcall(_lua, 0, 0, 0));
+
+		// Test debugging a loadstring
+		// Doesn't seem to work :(
+		//Check(Lua.luaL_loadstring(_lua, "xxx = 888"));
+		//Check(Lua.lua_pcall(_lua, 0, 0, 0));
+
 		Check(Lua.luaL_loadfile(_lua, "main.lua"));
-	    Check(Lua.lua_pcall(_lua, 0, -1, 0));
+	    Check(Lua.lua_pcall(_lua, 0, 0, 0));
+	}
+
+	public void OnApplicationQuit()
+	{
+		if (_lua != null)
+		{
+			// We need to shut down mobdebug when the application quits, otherwise the debugger won't detach
+			Check(Lua.luaL_loadstring(_lua, "require('mobdebug').done()"));
+			Check(Lua.lua_pcall(_lua, 0, 0, 0));
+		}
+	}
+
+	public static int Trace(Lua.lua_State lua)
+	{
+		Lua.CharPtr cp = Lua.lua_tostring(lua, 1);
+		using (var sw = File.AppendText("log.txt"))
+			sw.Write(cp.chars);
+		return 0;
 	}
 
     void Check(int result)
@@ -47,5 +81,11 @@ public class LuaDebugTest : MonoBehaviour
         for (var i = lines.Length - 10; i < lines.Length; ++i)
             if (i >= 0)
                 GUILayout.Label(lines[i]);
+
+		if (GUILayout.Button("Do Lua stuff"))
+		{
+			Lua.lua_getglobal(_lua, "do_lua_stuff");
+			Check (Lua.lua_pcall(_lua, 0, 0, 0));
+		}
     }
 }
